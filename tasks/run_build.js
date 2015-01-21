@@ -1,6 +1,4 @@
 var os = require('os');
-var config = require('./utils/server-config');
-
 module.exports = function (grunt) {
   grunt.registerTask('run_build', [
     'build',
@@ -27,6 +25,6 @@ module.exports = function (grunt) {
   });
 
   grunt.registerTask('_open_built_kibana', function () {
-    require('opn')('http://localhost:' + config.kibana.port);
+    require('opn')('http://localhost:5601');
   });
 };

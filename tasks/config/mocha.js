@@ -1,6 +1,3 @@
-var config = require('../utils/server-config');
-var unitTestUrl = require('util').format('http://localhost:%d/test/unit/', config.kibana.port);
-
 module.exports = {
   options: {
     log: true,
@@ -9,7 +6,9 @@ module.exports = {
   },
   unit: {
     options: {
-      urls: [ unitTestUrl ]
+      urls: [
+        'http://localhost:5601/test/unit/'
+      ]
     }
   }
 };
