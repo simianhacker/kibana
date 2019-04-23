@@ -15,6 +15,19 @@ declare interface Ml {
     deleteAnnotation(id: string | undefined): Promise<any>;
     indexAnnotation(annotation: Annotation): Promise<object>;
   };
+
+  dataFrame: {
+    getDataFrameTransforms(): Promise<any>;
+    getDataFrameTransformsStats(): Promise<any>;
+    createDataFrameTransformsJob(jobId: string, jobConfig: any): Promise<any>;
+    deleteDataFrameTransformsJob(jobId: string): Promise<any>;
+    getDataFrameTransformsPreview(payload: any): Promise<any>;
+    startDataFrameTransformsJob(jobId: string): Promise<any>;
+    stopDataFrameTransformsJob(jobId: string): Promise<any>;
+  };
+  esSearch: any;
+
+  getTimeFieldRange(obj: object): Promise<any>;
 }
 
 declare const ml: Ml;
