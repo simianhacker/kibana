@@ -258,6 +258,36 @@ export default function ({ getService }: FtrProviderContext) {
         });
       });
 
+      it('should lookback override should not drop below 5', () => {
+        const resp = fetchSnapshot({
+          sourceId: 'default',
+          timerange: {
+            to: max,
+            from: min,
+            interval: '1m',
+            lookbackSize: 2,
+          },
+          metric: { type: 'cpu' } as InfraSnapshotMetricInput,
+          nodeType: 'host' as InfraNodeType,
+          groupBy: [],
+          includeTimeseries: true,
+        });
+        return resp.then((data) => {
+          const snapshot = data;
+          expect(snapshot).to.have.property('nodes');
+          if (snapshot) {
+            const { nodes } = snapshot;
+            expect(nodes.length).to.equal(1);
+            const firstNode = first(nodes);
+            expect(firstNode).to.have.property('path');
+            expect(firstNode.path.length).to.equal(1);
+            expect(firstNode).to.have.property('metric');
+            expect(firstNode.metric).to.have.property('timeseries');
+            expect(firstNode.metric.timeseries?.rows.length).to.equal(6);
+          }
+        });
+      });
+
       it('should work with custom metrics', async () => {
         const data = await fetchSnapshot({
           sourceId: 'default',
