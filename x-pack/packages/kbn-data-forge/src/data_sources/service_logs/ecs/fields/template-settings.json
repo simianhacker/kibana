@@ -1,0 +1,20 @@
+{
+  "index_patterns": ["kbn-data-forge-service_logs.*"],
+  "priority": 1,
+  "data_stream": {},
+  "template": {
+    "settings": {
+      "index": {
+        "codec" : "best_compression",
+        "mapping": {
+          "total_fields": {
+            "limit": 2000
+          }
+        }
+      }
+    },
+    "aliases": {
+      "logs-service_logs": {}
+    }
+  }
+}

@@ -8,7 +8,8 @@
 import type { Moment } from 'moment';
 import { Client } from '@elastic/elasticsearch';
 import * as rt from 'io-ts';
-import { FAKE_HOSTS, FAKE_LOGS, FAKE_STACK } from '../constants';
+import { QueueObject } from 'async';
+import { FAKE_HOSTS, FAKE_LOGS, FAKE_STACK, SERVICE_LOGS } from '../constants';
 
 export interface Doc {
   namespace: string;
@@ -21,6 +22,7 @@ export const DatasetRT = rt.keyof({
   [FAKE_HOSTS]: null,
   [FAKE_LOGS]: null,
   [FAKE_STACK]: null,
+  [SERVICE_LOGS]: null,
 });
 
 export type Dataset = rt.TypeOf<typeof DatasetRT>;
@@ -120,6 +122,7 @@ export const ConfigRT = rt.type({
     reduceWeekendTrafficBy: rt.number,
     ephemeralProjectIds: rt.number,
     alignEventsToInterval: rt.boolean,
+    cardinality: rt.number,
   }),
   schedule: rt.array(ScheduleRT),
 });
@@ -138,8 +141,9 @@ export type GeneratorFunction = (
   config: Config,
   schedule: ParsedSchedule,
   index: number,
-  timestamp: Moment
-) => Doc[];
+  timestamp: Moment,
+  queue: QueueObject<Doc>
+) => Promise<Doc[]>;
 export type EventFunction = (schedule: Schedule | ParsedSchedule, timestamp: Moment) => Doc[];
 export type EventTemplate = Array<[EventFunction, number]>;
 

@@ -40,6 +40,7 @@ export const entityDefinitionSchema = z.object({
         syncField: z.optional(z.string()),
         syncDelay: z.optional(z.string()),
         frequency: z.optional(z.string()),
+        pageSize: z.optional(z.number()),
       })
     ),
   }),
@@ -50,6 +51,7 @@ export const entityDefinitionSchema = z.object({
           syncField: z.optional(z.string()),
           syncDelay: z.optional(z.string()),
           frequency: z.optional(z.string()),
+          pageSize: z.optional(z.number()),
         })
       ),
     })

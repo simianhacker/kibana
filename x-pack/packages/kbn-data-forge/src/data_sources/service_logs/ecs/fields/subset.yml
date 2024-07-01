@@ -1,0 +1,22 @@
+---
+name: service_logs
+fields:
+  base:
+    fields: "*"
+  agent:
+    fields: "*"
+  cloud:
+    fields: "*"
+  container:
+    fields: "*"
+  data_stream:
+    fields: "*"
+  host:
+    fields: "*"
+  http:
+    fields: "*"
+  log:
+    fields: "*"
+  service:
+    fields: "*"
+

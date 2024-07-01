@@ -1,0 +1,143 @@
+ECS_Version,Indexed,Field_Set,Field,Type,Level,Normalization,Example,Description
+8.0.0,true,base,@timestamp,date,core,,2016-05-23T08:05:34.853Z,Date/time when the event originated.
+8.0.0,true,base,labels,object,core,,"{""application"": ""foo-bar"", ""env"": ""production""}",Custom key/value pairs.
+8.0.0,true,base,message,match_only_text,core,,Hello World,Log message optimized for viewing in a log viewer.
+8.0.0,true,base,tags,keyword,core,array,"[""production"", ""env2""]",List of keywords used to tag each event.
+8.0.0,true,agent,agent.build.original,keyword,core,,"metricbeat version 7.6.0 (amd64), libbeat 7.6.0 [6a23e8f8f30f5001ba344e4e54d8d9cb82cb107c built 2020-02-05 23:10:10 +0000 UTC]",Extended build information for the agent.
+8.0.0,true,agent,agent.ephemeral_id,keyword,extended,,8a4f500f,Ephemeral identifier of this agent.
+8.0.0,true,agent,agent.id,keyword,core,,8a4f500d,Unique identifier of this agent.
+8.0.0,true,agent,agent.name,keyword,core,,foo,Custom name of the agent.
+8.0.0,true,agent,agent.type,keyword,core,,filebeat,Type of the agent.
+8.0.0,true,agent,agent.version,keyword,core,,6.0.0-rc2,Version of the agent.
+8.0.0,true,cloud,cloud.account.id,keyword,extended,,666777888999,The cloud account or organization id.
+8.0.0,true,cloud,cloud.account.name,keyword,extended,,elastic-dev,The cloud account name.
+8.0.0,true,cloud,cloud.availability_zone,keyword,extended,,us-east-1c,"Availability zone in which this host, resource, or service is located."
+8.0.0,true,cloud,cloud.instance.id,keyword,extended,,i-1234567890abcdef0,Instance ID of the host machine.
+8.0.0,true,cloud,cloud.instance.name,keyword,extended,,,Instance name of the host machine.
+8.0.0,true,cloud,cloud.machine.type,keyword,extended,,t2.medium,Machine type of the host machine.
+8.0.0,true,cloud,cloud.origin.account.id,keyword,extended,,666777888999,The cloud account or organization id.
+8.0.0,true,cloud,cloud.origin.account.name,keyword,extended,,elastic-dev,The cloud account name.
+8.0.0,true,cloud,cloud.origin.availability_zone,keyword,extended,,us-east-1c,"Availability zone in which this host, resource, or service is located."
+8.0.0,true,cloud,cloud.origin.instance.id,keyword,extended,,i-1234567890abcdef0,Instance ID of the host machine.
+8.0.0,true,cloud,cloud.origin.instance.name,keyword,extended,,,Instance name of the host machine.
+8.0.0,true,cloud,cloud.origin.machine.type,keyword,extended,,t2.medium,Machine type of the host machine.
+8.0.0,true,cloud,cloud.origin.project.id,keyword,extended,,my-project,The cloud project id.
+8.0.0,true,cloud,cloud.origin.project.name,keyword,extended,,my project,The cloud project name.
+8.0.0,true,cloud,cloud.origin.provider,keyword,extended,,aws,Name of the cloud provider.
+8.0.0,true,cloud,cloud.origin.region,keyword,extended,,us-east-1,"Region in which this host, resource, or service is located."
+8.0.0,true,cloud,cloud.origin.service.name,keyword,extended,,lambda,The cloud service name.
+8.0.0,true,cloud,cloud.project.id,keyword,extended,,my-project,The cloud project id.
+8.0.0,true,cloud,cloud.project.name,keyword,extended,,my project,The cloud project name.
+8.0.0,true,cloud,cloud.provider,keyword,extended,,aws,Name of the cloud provider.
+8.0.0,true,cloud,cloud.region,keyword,extended,,us-east-1,"Region in which this host, resource, or service is located."
+8.0.0,true,cloud,cloud.service.name,keyword,extended,,lambda,The cloud service name.
+8.0.0,true,cloud,cloud.target.account.id,keyword,extended,,666777888999,The cloud account or organization id.
+8.0.0,true,cloud,cloud.target.account.name,keyword,extended,,elastic-dev,The cloud account name.
+8.0.0,true,cloud,cloud.target.availability_zone,keyword,extended,,us-east-1c,"Availability zone in which this host, resource, or service is located."
+8.0.0,true,cloud,cloud.target.instance.id,keyword,extended,,i-1234567890abcdef0,Instance ID of the host machine.
+8.0.0,true,cloud,cloud.target.instance.name,keyword,extended,,,Instance name of the host machine.
+8.0.0,true,cloud,cloud.target.machine.type,keyword,extended,,t2.medium,Machine type of the host machine.
+8.0.0,true,cloud,cloud.target.project.id,keyword,extended,,my-project,The cloud project id.
+8.0.0,true,cloud,cloud.target.project.name,keyword,extended,,my project,The cloud project name.
+8.0.0,true,cloud,cloud.target.provider,keyword,extended,,aws,Name of the cloud provider.
+8.0.0,true,cloud,cloud.target.region,keyword,extended,,us-east-1,"Region in which this host, resource, or service is located."
+8.0.0,true,cloud,cloud.target.service.name,keyword,extended,,lambda,The cloud service name.
+8.0.0,true,container,container.id,keyword,core,,,Unique container id.
+8.0.0,true,container,container.image.name,keyword,extended,,,Name of the image the container was built on.
+8.0.0,true,container,container.image.tag,keyword,extended,array,,Container image tags.
+8.0.0,true,container,container.labels,object,extended,,,Image labels.
+8.0.0,true,container,container.name,keyword,extended,,,Container name.
+8.0.0,true,container,container.runtime,keyword,extended,,docker,Runtime managing this container.
+8.0.0,true,data_stream,data_stream.dataset,constant_keyword,extended,,nginx.access,The field can contain anything that makes sense to signify the source of the data.
+8.0.0,true,data_stream,data_stream.namespace,constant_keyword,extended,,production,A user defined namespace. Namespaces are useful to allow grouping of data.
+8.0.0,true,data_stream,data_stream.type,constant_keyword,extended,,logs,An overarching type for the data stream.
+8.0.0,true,host,host.architecture,keyword,core,,x86_64,Operating system architecture.
+8.0.0,true,host,host.cpu.usage,scaled_float,extended,,,"Percent CPU used, between 0 and 1."
+8.0.0,true,host,host.disk.read.bytes,long,extended,,,The number of bytes read by all disks.
+8.0.0,true,host,host.disk.write.bytes,long,extended,,,The number of bytes written on all disks.
+8.0.0,true,host,host.domain,keyword,extended,,CONTOSO,Name of the directory the group is a member of.
+8.0.0,true,host,host.geo.city_name,keyword,core,,Montreal,City name.
+8.0.0,true,host,host.geo.continent_code,keyword,core,,NA,Continent code.
+8.0.0,true,host,host.geo.continent_name,keyword,core,,North America,Name of the continent.
+8.0.0,true,host,host.geo.country_iso_code,keyword,core,,CA,Country ISO code.
+8.0.0,true,host,host.geo.country_name,keyword,core,,Canada,Country name.
+8.0.0,true,host,host.geo.location,geo_point,core,,"{ ""lon"": -73.614830, ""lat"": 45.505918 }",Longitude and latitude.
+8.0.0,true,host,host.geo.name,keyword,extended,,boston-dc,User-defined description of a location.
+8.0.0,true,host,host.geo.postal_code,keyword,core,,94040,Postal code.
+8.0.0,true,host,host.geo.region_iso_code,keyword,core,,CA-QC,Region ISO code.
+8.0.0,true,host,host.geo.region_name,keyword,core,,Quebec,Region name.
+8.0.0,true,host,host.geo.timezone,keyword,core,,America/Argentina/Buenos_Aires,Time zone.
+8.0.0,true,host,host.hostname,keyword,core,,,Hostname of the host.
+8.0.0,true,host,host.id,keyword,core,,,Unique host id.
+8.0.0,true,host,host.ip,ip,core,array,,Host ip addresses.
+8.0.0,true,host,host.mac,keyword,core,array,"[""00-00-5E-00-53-23"", ""00-00-5E-00-53-24""]",Host MAC addresses.
+8.0.0,true,host,host.name,keyword,core,,,Name of the host.
+8.0.0,true,host,host.network.egress.bytes,long,extended,,,The number of bytes sent on all network interfaces.
+8.0.0,true,host,host.network.egress.packets,long,extended,,,The number of packets sent on all network interfaces.
+8.0.0,true,host,host.network.ingress.bytes,long,extended,,,The number of bytes received on all network interfaces.
+8.0.0,true,host,host.network.ingress.packets,long,extended,,,The number of packets received on all network interfaces.
+8.0.0,true,host,host.os.family,keyword,extended,,debian,"OS family (such as redhat, debian, freebsd, windows)."
+8.0.0,true,host,host.os.full,keyword,extended,,Mac OS Mojave,"Operating system name, including the version or code name."
+8.0.0,true,host,host.os.full.text,match_only_text,extended,,Mac OS Mojave,"Operating system name, including the version or code name."
+8.0.0,true,host,host.os.kernel,keyword,extended,,4.4.0-112-generic,Operating system kernel version as a raw string.
+8.0.0,true,host,host.os.name,keyword,extended,,Mac OS X,"Operating system name, without the version."
+8.0.0,true,host,host.os.name.text,match_only_text,extended,,Mac OS X,"Operating system name, without the version."
+8.0.0,true,host,host.os.platform,keyword,extended,,darwin,"Operating system platform (such centos, ubuntu, windows)."
+8.0.0,true,host,host.os.type,keyword,extended,,macos,"Which commercial OS family (one of: linux, macos, unix or windows)."
+8.0.0,true,host,host.os.version,keyword,extended,,10.14.1,Operating system version as a raw string.
+8.0.0,true,host,host.type,keyword,core,,,Type of host.
+8.0.0,true,host,host.uptime,long,extended,,1325,Seconds the host has been up.
+8.0.0,true,http,http.request.body.bytes,long,extended,,887,Size in bytes of the request body.
+8.0.0,true,http,http.request.body.content,wildcard,extended,,Hello world,The full HTTP request body.
+8.0.0,true,http,http.request.body.content.text,match_only_text,extended,,Hello world,The full HTTP request body.
+8.0.0,true,http,http.request.bytes,long,extended,,1437,Total size in bytes of the request (body and headers).
+8.0.0,true,http,http.request.id,keyword,extended,,123e4567-e89b-12d3-a456-426614174000,HTTP request ID.
+8.0.0,true,http,http.request.method,keyword,extended,,POST,HTTP request method.
+8.0.0,true,http,http.request.mime_type,keyword,extended,,image/gif,Mime type of the body of the request.
+8.0.0,true,http,http.request.referrer,keyword,extended,,https://blog.example.com/,Referrer for this HTTP request.
+8.0.0,true,http,http.response.body.bytes,long,extended,,887,Size in bytes of the response body.
+8.0.0,true,http,http.response.body.content,wildcard,extended,,Hello world,The full HTTP response body.
+8.0.0,true,http,http.response.body.content.text,match_only_text,extended,,Hello world,The full HTTP response body.
+8.0.0,true,http,http.response.bytes,long,extended,,1437,Total size in bytes of the response (body and headers).
+8.0.0,true,http,http.response.mime_type,keyword,extended,,image/gif,Mime type of the body of the response.
+8.0.0,true,http,http.response.status_code,long,extended,,404,HTTP response status code.
+8.0.0,true,http,http.version,keyword,extended,,1.1,HTTP version.
+8.0.0,true,log,log.file.path,keyword,extended,,/var/log/fun-times.log,Full path to the log file this event came from.
+8.0.0,true,log,log.level,keyword,core,,error,Log level of the log event.
+8.0.0,true,log,log.logger,keyword,core,,org.elasticsearch.bootstrap.Bootstrap,Name of the logger.
+8.0.0,true,log,log.origin.file.line,long,extended,,42,The line number of the file which originated the log event.
+8.0.0,true,log,log.origin.file.name,keyword,extended,,Bootstrap.java,The code file which originated the log event.
+8.0.0,true,log,log.origin.function,keyword,extended,,init,The function which originated the log event.
+8.0.0,true,log,log.syslog,object,extended,,,Syslog metadata
+8.0.0,true,log,log.syslog.facility.code,long,extended,,23,Syslog numeric facility of the event.
+8.0.0,true,log,log.syslog.facility.name,keyword,extended,,local7,Syslog text-based facility of the event.
+8.0.0,true,log,log.syslog.priority,long,extended,,135,Syslog priority of the event.
+8.0.0,true,log,log.syslog.severity.code,long,extended,,3,Syslog numeric severity of the event.
+8.0.0,true,log,log.syslog.severity.name,keyword,extended,,Error,Syslog text-based severity of the event.
+8.0.0,true,service,service.address,keyword,extended,,172.26.0.2:5432,Address of this service.
+8.0.0,true,service,service.environment,keyword,extended,,production,Environment of the service.
+8.0.0,true,service,service.ephemeral_id,keyword,extended,,8a4f500f,Ephemeral identifier of this service.
+8.0.0,true,service,service.id,keyword,core,,d37e5ebfe0ae6c4972dbe9f0174a1637bb8247f6,Unique identifier of the running service.
+8.0.0,true,service,service.name,keyword,core,,elasticsearch-metrics,Name of the service.
+8.0.0,true,service,service.node.name,keyword,extended,,instance-0000000016,Name of the service node.
+8.0.0,true,service,service.origin.address,keyword,extended,,172.26.0.2:5432,Address of this service.
+8.0.0,true,service,service.origin.environment,keyword,extended,,production,Environment of the service.
+8.0.0,true,service,service.origin.ephemeral_id,keyword,extended,,8a4f500f,Ephemeral identifier of this service.
+8.0.0,true,service,service.origin.id,keyword,core,,d37e5ebfe0ae6c4972dbe9f0174a1637bb8247f6,Unique identifier of the running service.
+8.0.0,true,service,service.origin.name,keyword,core,,elasticsearch-metrics,Name of the service.
+8.0.0,true,service,service.origin.node.name,keyword,extended,,instance-0000000016,Name of the service node.
+8.0.0,true,service,service.origin.state,keyword,core,,,Current state of the service.
+8.0.0,true,service,service.origin.type,keyword,core,,elasticsearch,The type of the service.
+8.0.0,true,service,service.origin.version,keyword,core,,3.2.4,Version of the service.
+8.0.0,true,service,service.state,keyword,core,,,Current state of the service.
+8.0.0,true,service,service.target.address,keyword,extended,,172.26.0.2:5432,Address of this service.
+8.0.0,true,service,service.target.environment,keyword,extended,,production,Environment of the service.
+8.0.0,true,service,service.target.ephemeral_id,keyword,extended,,8a4f500f,Ephemeral identifier of this service.
+8.0.0,true,service,service.target.id,keyword,core,,d37e5ebfe0ae6c4972dbe9f0174a1637bb8247f6,Unique identifier of the running service.
+8.0.0,true,service,service.target.name,keyword,core,,elasticsearch-metrics,Name of the service.
+8.0.0,true,service,service.target.node.name,keyword,extended,,instance-0000000016,Name of the service node.
+8.0.0,true,service,service.target.state,keyword,core,,,Current state of the service.
+8.0.0,true,service,service.target.type,keyword,core,,elasticsearch,The type of the service.
+8.0.0,true,service,service.target.version,keyword,core,,3.2.4,Version of the service.
+8.0.0,true,service,service.type,keyword,core,,elasticsearch,The type of the service.
+8.0.0,true,service,service.version,keyword,core,,3.2.4,Version of the service.

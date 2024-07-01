@@ -40,6 +40,7 @@ export function generateLatestTransform(
     settings: {
       deduce_mappings: false,
       unattended: true,
+      max_page_search_size: definition.latest?.settings?.pageSize ?? 500,
     },
     pivot: {
       group_by: {

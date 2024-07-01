@@ -1,0 +1,60 @@
+{
+  "_meta": {
+    "description": "Sample composable template that includes all ECS fields",
+    "ecs_version": "8.0.0"
+  },
+  "composed_of": [
+    "ecs_8.0.0_base",
+    "ecs_8.0.0_agent",
+    "ecs_8.0.0_cloud",
+    "ecs_8.0.0_container",
+    "ecs_8.0.0_data_stream",
+    "ecs_8.0.0_host",
+    "ecs_8.0.0_http",
+    "ecs_8.0.0_log",
+    "ecs_8.0.0_service"
+  ],
+  "data_stream": {},
+  "index_patterns": [
+    "kbn-data-forge-service_logs.*"
+  ],
+  "priority": 1,
+  "template": {
+    "aliases": {
+      "logs-service_logs": {}
+    },
+    "mappings": {
+      "_meta": {
+        "version": "1.6.0"
+      },
+      "date_detection": false,
+      "dynamic_templates": [
+        {
+          "strings_as_keyword": {
+            "mapping": {
+              "fields": {
+                "text": {
+                  "norms": false,
+                  "type": "text"
+                }
+              },
+              "ignore_above": 1024,
+              "type": "keyword"
+            },
+            "match_mapping_type": "string"
+          }
+        }
+      ]
+    },
+    "settings": {
+      "index": {
+        "codec": "best_compression",
+        "mapping": {
+          "total_fields": {
+            "limit": 2000
+          }
+        }
+      }
+    }
+  }
+}

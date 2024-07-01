@@ -87,28 +87,30 @@ export async function createEvents(
     // When --align-events-to-interval is set, we will index all the events on the same
     // timestamp. Otherwise they will be distributed across the interval randomly.
     if (config.indexing.alignEventsToInterval) {
-      range(epc)
-        .map((i) => {
+      await Promise.all(
+        range(epc || 1).map(async (i) => {
           const generateEvent = generateEvents[config.indexing.dataset] || generateEvents.fake_logs;
-          return generateEvent(config, schedule, i, currentTimestamp);
+          return generateEvent(config, schedule, i, currentTimestamp, queue);
         })
-        .flat()
-        .forEach((event) => queue.push(event));
+        // .flat()
+        // .map((event) => queue.push(event))
+      );
     } else {
-      range(epc)
-        .map(() =>
-          moment(random(currentTimestamp.valueOf(), currentTimestamp.valueOf() + interval - 1))
-        )
-        .sort()
-        .map((ts, i) => {
-          const generateEvent = generateEvents[config.indexing.dataset] || generateEvents.fake_logs;
-          return generateEvent(config, schedule, i, ts);
-        })
-        .flat()
-        .forEach((event) => queue.push(event));
+      await Promise.all(
+        range(epc)
+          .map(() =>
+            moment(random(currentTimestamp.valueOf(), currentTimestamp.valueOf() + interval - 1))
+          )
+          .sort()
+          .map((ts, i) => {
+            const generateEvent =
+              generateEvents[config.indexing.dataset] || generateEvents.fake_logs;
+            return generateEvent(config, schedule, i, ts, queue);
+          })
+        // .flat()
+        // .map((event) => queue.push(event))
+      );
     }
-
-    await queue.drain();
   } else {
     logger.info({ took: 0, latency: 0, indexed: 0 }, 'Indexing 0 documents.');
   }
