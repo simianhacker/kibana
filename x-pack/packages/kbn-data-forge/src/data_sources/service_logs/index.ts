@@ -6,7 +6,7 @@
  */
 
 import { faker } from '@faker-js/faker';
-import { omit } from 'lodash';
+import { omit, sample } from 'lodash';
 import { SERVICE_LOGS } from '../../constants';
 import { GeneratorFunction } from '../../types';
 import { generateService } from './lib/generate_service';
@@ -23,18 +23,16 @@ export const generateEvent: GeneratorFunction = async (
   for (let i = 0; i < cardinality; i++) {
     const service = generateService(i + 1);
     const { hostsWithCloud } = service;
-    for (let h = 0; h < hostsWithCloud.length; h++) {
-      const hostWithCloud = hostsWithCloud[h];
-      const doc = {
-        namespace: SERVICE_LOGS,
-        '@timestamp': timestamp.toISOString(),
-        message: faker.git.commitMessage(),
-        data_stream: { type: 'logs', dataset: SERVICE_LOGS },
-        service: omit(service, 'hostsWithCloud'),
-        ...hostWithCloud,
-      };
-      queue.push(doc);
-    }
+    const hostWithCloud = sample(hostsWithCloud);
+    const doc = {
+      namespace: SERVICE_LOGS,
+      '@timestamp': timestamp.toISOString(),
+      message: faker.git.commitMessage(),
+      data_stream: { type: 'logs', dataset: SERVICE_LOGS },
+      service: omit(service, 'hostsWithCloud'),
+      ...hostWithCloud,
+    };
+    queue.push(doc);
   }
   await queue.drain();
   return [];
