@@ -5,24 +5,28 @@
  * 2.0.
  */
 
-import { omit, sample } from 'lodash';
+import { omit, range, sample } from 'lodash';
 import { SERVICE_LOGS } from '../../constants';
-import { GeneratorFunction } from '../../types';
+import { Doc, GeneratorFunction } from '../../types';
 import { generateService } from './lib/generate_service';
 import { generateLogMessage } from './lib/generate_log_message';
 
-export const generateEvent: GeneratorFunction = (_config, _schedule, index, timestamp) => {
-  const service = generateService(index + 1);
-  const { hostsWithCloud } = service;
-  const hostWithCloud = sample(hostsWithCloud);
-  return [
-    {
+export const generateEvent: GeneratorFunction = (config, _schedule, _index, timestamp) => {
+  const { cardinality, seed } = config.indexing;
+
+  const events = range(cardinality).map((id) => {
+    const service = generateService(id + seed);
+    const { hostsWithCloud } = service;
+    const hostWithCloud = sample(hostsWithCloud);
+    return {
       namespace: SERVICE_LOGS,
       '@timestamp': timestamp.toISOString(),
       data_stream: { type: 'logs', dataset: SERVICE_LOGS, namespace: 'default' },
       service: omit(service, 'hostsWithCloud'),
       ...hostWithCloud,
       ...generateLogMessage(timestamp),
-    },
-  ];
+    };
+  }) as Doc[];
+
+  return events;
 };

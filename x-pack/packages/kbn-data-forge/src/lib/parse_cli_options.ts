@@ -94,6 +94,18 @@ export function parseCliOptions(): CliOptions {
       'The number of ephemeral projects to create. This is only enabled for the "fake_stack" dataset. It will create project IDs that will last 5 to 12 hours.',
       parseCliInt,
       DEFAULTS.EPHEMERAL_PROJECT_IDS
+    )
+    .option(
+      '--cardinality <number>',
+      'The cardinality of entities. This only works with the service.logs dataset.',
+      parseCliInt,
+      DEFAULTS.CARDINALITY
+    )
+    .option(
+      '--seed <number>',
+      "This will seed the entity ID allowing for multiple data-forge instances that won't overlap in the data.",
+      parseCliInt,
+      1
     );
 
   program.parse(process.argv);

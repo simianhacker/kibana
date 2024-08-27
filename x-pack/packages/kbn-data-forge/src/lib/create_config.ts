@@ -64,6 +64,8 @@ export function createConfig(partialConfig: PartialConfig = {}) {
       ephemeralProjectIds: DEFAULTS.EPHEMERAL_PROJECT_IDS,
       alignEventsToInterval: DEFAULTS.ALIGN_EVENTS_TO_INTERVAL,
       artificialIndexDelay: 0,
+      cardinality: DEFAULTS.CARDINALITY,
+      seed: 1,
       ...(partialConfig.indexing ?? {}),
     },
     schedule: partialConfig.schedule ?? [schedule],

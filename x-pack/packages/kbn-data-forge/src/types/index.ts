@@ -127,6 +127,8 @@ export const ConfigRT = rt.type({
     ephemeralProjectIds: rt.number,
     alignEventsToInterval: rt.boolean,
     artificialIndexDelay: rt.number,
+    cardinality: rt.number,
+    seed: rt.number,
   }),
   schedule: rt.array(ScheduleRT),
 });
@@ -187,4 +189,6 @@ export interface CliOptions {
   ephemeralProjectIds: number;
   alignEventsToInterval: boolean;
   scheduleEnd?: string;
+  cardinality: number;
+  seed: number;
 }

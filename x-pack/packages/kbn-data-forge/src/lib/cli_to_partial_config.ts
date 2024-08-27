@@ -48,6 +48,8 @@ export function cliOptionsToPartialConfig(options: CliOptions) {
       reduceWeekendTrafficBy: options.reduceWeekendTrafficBy,
       ephemeralProjectIds: options.ephemeralProjectIds,
       alignEventsToInterval: options.alignEventsToInterval === true,
+      cardinality: options.cardinality,
+      seed: options.seed,
     },
     schedule: [schedule],
   };
