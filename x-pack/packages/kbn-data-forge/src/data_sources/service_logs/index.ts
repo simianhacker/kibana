@@ -18,11 +18,15 @@ export const generateEvent: GeneratorFunction = (config, _schedule, _index, time
     const service = generateService(id + seed);
     const { hostsWithCloud } = service;
     const hostWithCloud = sample(hostsWithCloud);
+    const scenario = config.indexing.scenario || 'good';
     return {
       namespace: SERVICE_LOGS,
       '@timestamp': timestamp.toISOString(),
       data_stream: { type: 'logs', dataset: SERVICE_LOGS, namespace: 'default' },
       service: omit(service, 'hostsWithCloud'),
+      labels: {
+        scenario,
+      },
       ...hostWithCloud,
       ...generateLogMessage(timestamp),
     };
