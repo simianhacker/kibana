@@ -5,7 +5,7 @@
  * 2.0.
  */
 
-import { sample, range, memoize } from 'lodash';
+import { memoize } from 'lodash';
 import { GeneratorFunction } from '../../types';
 import { replaceMetricsWithShapes } from '../../lib/replace_metrics_with_shapes';
 
@@ -13,7 +13,10 @@ export { indexTemplate } from './ecs';
 
 const createGroupIndex = (index: number) => Math.floor(index / 1000) * 1000;
 
-const randomBetween = (start = 0, end = 1, step = 0.1) => sample(range(start, end, step));
+const randomBetween = (min = 0, max = 1, step = 1) => {
+  const value = Math.random() * (max - min + 1) + min;
+  return value - (value % step);
+};
 
 const networkDataCount: Record<string, number> = {};
 const generateNetworkData = memoize(
@@ -62,29 +65,29 @@ export const generateEvent: GeneratorFunction = (config, schedule, index, timest
           cores: 4,
           total: {
             norm: {
-              pct: randomBetween(),
+              pct: randomBetween(0, 1, 0.01),
             },
           },
           user: {
-            pct: randomBetween(1, 4),
+            pct: randomBetween(1, 4, 0.01),
           },
           system: {
-            pct: randomBetween(1, 4),
+            pct: randomBetween(1, 4, 0.01),
           },
         },
         load: {
-          1: randomBetween(1, 4),
+          1: randomBetween(1, 4, 0.01),
         },
         memory: {
           actual: {
             used: {
-              pct: randomBetween(1, 4),
+              pct: randomBetween(1, 4, 0.01),
             },
           },
         },
         filesystem: {
           used: {
-            pct: randomBetween(1, 4),
+            pct: randomBetween(1, 4, 0.01),
           },
         },
       },
@@ -143,7 +146,7 @@ export const generateEvent: GeneratorFunction = (config, schedule, index, timest
         },
         core: {
           system: {
-            ticks: randomBetween(1_000_000, 1_500_100),
+            ticks: randomBetween(1_000_000, 1_500_100, 1),
           },
         },
       },
@@ -202,7 +205,7 @@ export const generateEvent: GeneratorFunction = (config, schedule, index, timest
         },
         core: {
           system: {
-            ticks: randomBetween(1_000_000, 1_500_100),
+            ticks: randomBetween(1_000_000, 1_500_100, 1),
           },
         },
       },
