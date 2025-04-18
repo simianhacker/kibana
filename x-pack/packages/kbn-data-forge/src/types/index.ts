@@ -129,6 +129,7 @@ export const ConfigRT = rt.type({
     artificialIndexDelay: rt.number,
     cardinality: rt.number,
     seed: rt.number,
+    slashLogs: rt.boolean,
   }),
   schedule: rt.array(ScheduleRT),
 });
@@ -191,4 +192,5 @@ export interface CliOptions {
   scheduleEnd?: string;
   cardinality: number;
   seed: number;
+  slashLogs: boolean;
 }

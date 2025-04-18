@@ -50,6 +50,7 @@ export function cliOptionsToPartialConfig(options: CliOptions) {
       alignEventsToInterval: options.alignEventsToInterval === true,
       cardinality: options.cardinality,
       seed: options.seed,
+      slashLogs: options.slashLogs,
     },
     schedule: [schedule],
   };

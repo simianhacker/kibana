@@ -66,6 +66,7 @@ export function createConfig(partialConfig: PartialConfig = {}) {
       artificialIndexDelay: 0,
       cardinality: DEFAULTS.CARDINALITY,
       seed: 1,
+      slashLogs: DEFAULTS.SLASH_LOGS,
       ...(partialConfig.indexing ?? {}),
     },
     schedule: partialConfig.schedule ?? [schedule],

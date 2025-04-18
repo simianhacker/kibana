@@ -111,7 +111,8 @@ export function parseCliOptions(): CliOptions {
       "This will seed the entity ID allowing for multiple data-forge instances that won't overlap in the data.",
       parseCliInt,
       1
-    );
+    )
+    .option('--slash-logs', 'This will index everything through slash logs', DEFAULTS.SLASH_LOGS);
 
   program.parse(process.argv);
   return program.opts() as CliOptions;
