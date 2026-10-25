@@ -5,11 +5,7 @@
  * 2.0.
  */
 
-import type { ElasticsearchClient, KibanaRequest, Logger } from '@kbn/core/server';
-import type { SecurityServiceStart } from '@kbn/core-security-server';
-import { DEFAULT_CONVERSATION_TITLE } from '@kbn/agent-builder-common';
-import { chatSystemIndex } from '@kbn/agent-builder-server';
-import { INVESTIGATION_TEMPLATE_ID } from '../../../common/escalations/constants';
+import type { KibanaRequest } from '@kbn/core/server';
 import { INVESTIGATION_SEVERITY_NONE } from '../../../common/investigations/constants';
 import type {
   InvestigationSectionCount,
@@ -17,20 +13,18 @@ import type {
   InvestigationSectionCountsQuery,
 } from '../../../common/investigations/investigation';
 import { isInvestigationSeverity } from '../../../common/investigations/severity';
-import { buildConversationReadFilter, resolveConversationReader } from './conversation_read_filter';
+import {
+  buildTermsCondition,
+  CONVERSATIONS_INDEX,
+  InvestigationsEsql,
+  SEARCH_TEXT_EVAL,
+  STATUS_SEVERITY_EVAL,
+  toSearchParams,
+  toSearchTerms,
+  type InvestigationsEsqlDeps,
+} from './investigations_esql';
 
-const CONVERSATIONS_INDEX = chatSystemIndex('conversations');
-
-export interface InvestigationSectionCountsServiceDeps {
-  /** Reads the conversations index; the read filter does the access check. */
-  getInternalEsClient: () => ElasticsearchClient;
-  getScopedEsClient: (request: KibanaRequest) => ElasticsearchClient;
-  getSecurity: () => SecurityServiceStart;
-  /** The agents the request's user can access: conversations on other agents are not readable. */
-  getAccessibleAgentIds: (request: KibanaRequest) => Promise<string[]>;
-  getSpaceId: (request: KibanaRequest) => string;
-  logger: Logger;
-}
+export type InvestigationSectionCountsServiceDeps = InvestigationsEsqlDeps;
 
 const emptyCount = (): InvestigationSectionCount => ({ total: 0, matching: 0 });
 
@@ -45,118 +39,59 @@ const emptyCounts = (): InvestigationSectionCounts => ({
   closed: emptyCount(),
 });
 
-/** The query's words, lower-cased: every one must appear, as in the list's `query` filter. */
-const toTerms = (query: string | undefined): string[] =>
-  (query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
-
-/**
- * Status and severity read the way `toMetadata` does: a missing status is open. The text is what
- * the list's `query` matches: the title (unless it is still Agent Builder's placeholder), the
- * summary, and the verdict, lower-cased and joined by newlines. `LOCATE` matches a term literally.
- */
+/** Status and severity read the way `toMetadata` does; the text is what the list's `query` matches. */
 export const buildSectionCountsEsql = (termCount: number): string => {
-  const groups = `| EVAL status = CASE(FIELD_EXTRACT(metadata, "status") == "closed", "closed", "open"),
-       severity = COALESCE(FIELD_EXTRACT(metadata, "severity"), "${INVESTIGATION_SEVERITY_NONE}")`;
   if (termCount === 0) {
     return `FROM ${CONVERSATIONS_INDEX}
-${groups}
+| EVAL ${STATUS_SEVERITY_EVAL}
 | STATS total = COUNT(*), matching = COUNT(*) BY status, severity`;
   }
-  const matches = Array.from(
-    { length: termCount },
-    (_, index) => `LOCATE(text, ?term${index}) > 0`
-  );
   return `FROM ${CONVERSATIONS_INDEX}
-${groups},
-       title_text = CASE(title IS NULL OR TRIM(title) == "" OR title == ?placeholder, "", title),
-       text = TO_LOWER(CONCAT(title_text, "\\n",
-         COALESCE(FIELD_EXTRACT(metadata, "summary"), ""), "\\n",
-         COALESCE(FIELD_EXTRACT(metadata, "verdict"), "")))
-| STATS total = COUNT(*), matching = COUNT(*) WHERE ${matches.join(' AND ')} BY status, severity`;
-};
-
-const isMissingIndex = (error: unknown): boolean => {
-  const { statusCode, message } = (error ?? {}) as { statusCode?: number; message?: string };
-  return statusCode === 404 || /unknown index|index_not_found/i.test(message ?? '');
+| EVAL ${STATUS_SEVERITY_EVAL},
+       ${SEARCH_TEXT_EVAL}
+| STATS total = COUNT(*), matching = COUNT(*) WHERE ${buildTermsCondition(
+    termCount
+  )} BY status, severity`;
 };
 
 /**
  * Counts the investigations of each home page group in one ES|QL query: open ones per severity,
- * and closed ones, each with and without the text query. Nothing is read into memory, so unlike
- * the list there is no candidate cap.
+ * and closed ones, each with and without the text query. Nothing is read into memory, so there is
+ * no candidate cap.
  */
 export class InvestigationSectionCountsService {
-  constructor(private readonly deps: InvestigationSectionCountsServiceDeps) {}
+  private readonly esql: InvestigationsEsql;
+
+  constructor(deps: InvestigationSectionCountsServiceDeps) {
+    this.esql = new InvestigationsEsql(deps);
+  }
 
   async count(
     request: KibanaRequest,
     { query }: InvestigationSectionCountsQuery
   ): Promise<InvestigationSectionCounts> {
-    const agentIds = await this.deps.getAccessibleAgentIds(request);
-    if (agentIds.length === 0) {
+    const esql = await this.esql.forRequest(request);
+    if (!esql) {
       return emptyCounts();
     }
-    const reader = await resolveConversationReader({
-      request,
-      security: this.deps.getSecurity(),
-      esClient: this.deps.getScopedEsClient(request),
+    const terms = toSearchTerms(query);
+    const rows = await esql({
+      query: buildSectionCountsEsql(terms.length),
+      params: toSearchParams(terms),
     });
-    const terms = toTerms(query);
-
-    let response: { columns: Array<{ name: string }>; values: unknown[][] };
-    try {
-      response = await this.deps.getInternalEsClient().esql.query({
-        query: buildSectionCountsEsql(terms.length),
-        filter: {
-          bool: {
-            filter: [
-              { term: { template_id: INVESTIGATION_TEMPLATE_ID } },
-              ...buildConversationReadFilter({
-                spaceId: this.deps.getSpaceId(request),
-                reader,
-                agentIds,
-              }),
-            ],
-          },
-        },
-        params:
-          terms.length > 0
-            ? [
-                { placeholder: DEFAULT_CONVERSATION_TITLE },
-                ...terms.map((term, index) => ({ [`term${index}`]: term })),
-              ]
-            : [],
-        format: 'json',
-      });
-    } catch (error) {
-      if (isMissingIndex(error)) {
-        this.deps.logger.debug(`No conversations to count investigations in yet: ${error}`);
-        return emptyCounts();
-      }
-      throw error;
-    }
-
-    const names = response.columns.map(({ name }) => name);
-    const [totalIndex, matchingIndex, statusIndex, severityIndex] = [
-      'total',
-      'matching',
-      'status',
-      'severity',
-    ].map((name) => names.indexOf(name));
 
     const counts = emptyCounts();
-    for (const row of response.values) {
-      const severity = row[severityIndex];
+    for (const { status, severity, total, matching } of rows) {
       const group =
-        row[statusIndex] === 'closed'
+        status === 'closed'
           ? counts.closed
           : counts.open[
               typeof severity === 'string' && isInvestigationSeverity(severity)
                 ? severity
                 : INVESTIGATION_SEVERITY_NONE
             ];
-      group.total += Number(row[totalIndex] ?? 0);
-      group.matching += Number(row[matchingIndex] ?? 0);
+      group.total += Number(total ?? 0);
+      group.matching += Number(matching ?? 0);
     }
     return counts;
   }

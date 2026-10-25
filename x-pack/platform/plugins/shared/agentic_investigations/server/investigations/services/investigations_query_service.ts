@@ -8,31 +8,24 @@
 import type { QueryDslQueryContainer } from '@elastic/elasticsearch/lib/api/types';
 import type { KibanaRequest, Logger } from '@kbn/core/server';
 import type {
-  ConversationSearchSort,
   ConversationWithoutRoundsWithPermissions,
   MetadataFieldValue,
   VersionedAttachment,
 } from '@kbn/agent-builder-common';
 import type { ConversationPublicClient } from '@kbn/agent-builder-server';
-import type { KueryNode } from '@kbn/es-query';
-import { nodeBuilder, nodeTypes } from '@kbn/es-query';
+import { nodeBuilder } from '@kbn/es-query';
 import type { ProposalsPluginStart } from '@kbn/proposals-plugin/server';
 import type { ProposalWithMetadata } from '@kbn/proposals-common';
 import { INVESTIGATION_TEMPLATE_ID } from '../../../common/escalations/constants';
 import type { InvestigationHypotheses } from '../../../common/hypotheses/hypotheses';
 import type { Impact } from '../../../common/impact/impact';
-import {
-  INVESTIGATION_SEVERITY_NONE,
-  MAX_INVESTIGATION_CANDIDATES,
-  MAX_INVESTIGATIONS_PAGE_SIZE,
-} from '../../../common/investigations/constants';
+import { MAX_INVESTIGATIONS_PAGE_SIZE } from '../../../common/investigations/constants';
 import type {
   Investigation,
   InvestigationFilters,
   InvestigationImpactResponse,
   InvestigationMetadata,
   InvestigationProposalSummary,
-  InvestigationSeverity,
   InvestigationSubjectResponse,
   InvestigationSummary,
   ListInvestigationsQuery,
@@ -53,6 +46,11 @@ import { retryWhileShardUnavailable } from '../../investigation_attachments';
 import { MAX_INVESTIGATION_CANDIDATE_CONVERSATION_IDS } from '../../investigation_attachments/attachment_doc_service';
 import { bulkGetReadableConversations } from './readable_conversation_ids';
 import type { InProgressResolver } from './in_progress';
+import type {
+  InvestigationSearch,
+  InvestigationSearchScope,
+  InvestigationsSearchService,
+} from './investigations_search';
 
 /** Bound on the proposals one investigation read returns. */
 const MAX_INVESTIGATION_PROPOSALS = 100;
@@ -63,20 +61,11 @@ const MAX_INVESTIGATION_PROPOSALS = 100;
  */
 const MAX_ATTACHMENT_IDS_PER_SEARCH = 50;
 
-/** Pages of {@link MAX_INVESTIGATION_CANDIDATES} a candidate search reads: Elasticsearch's result window. */
-const MAX_CANDIDATE_SEARCH_PAGES = 10_000 / MAX_INVESTIGATION_CANDIDATES;
-
-const SEVERITY_RANK: Record<InvestigationSeverity, number> = {
-  low: 1,
-  medium: 2,
-  high: 3,
-  critical: 4,
-};
-
 type ConversationSummary = ConversationWithoutRoundsWithPermissions;
 
 export interface InvestigationsQueryServiceDeps {
   getConversationClient: (request: KibanaRequest) => Promise<ConversationPublicClient>;
+  getInvestigationsSearch: () => Pick<InvestigationsSearchService, 'forRequest'>;
   getSpaceId: (request: KibanaRequest) => string;
   getImpactService: () => ImpactService;
   getSubjectsService: () => SubjectsService;
@@ -90,11 +79,10 @@ export interface InvestigationsQueryServiceDeps {
  * Reads investigations: Agent Builder conversations on the `investigation` template, joined with
  * the side indexes (subjects, impact, hypotheses), proposals, and the in-progress state.
  *
- * Two phases. The side indexes are read as the internal user, scoped by space, and only yield
- * candidate conversation ids; the conversations are then read as the caller (`bulkGet` or
- * `search`), so an investigation the caller cannot read never appears. Filters Agent Builder
- * cannot apply run in memory over at most {@link MAX_INVESTIGATION_CANDIDATES} candidates, and
- * only the requested page is hydrated.
+ * Lists run in phases. The side indexes are read as the internal user, scoped by space, and only
+ * yield candidate conversation ids. Elasticsearch then filters, sorts, counts and pages the
+ * investigations the caller can read (see {@link InvestigationsSearchService}), returning ids
+ * only. The page's conversations are read as the caller (`bulkGet`) and hydrated.
  *
  * A side-index document whose conversation attachment exists but is inactive (the user removed
  * it) is hidden; a document that was never attached (an agent turn that has not ended yet) stays
@@ -138,34 +126,43 @@ export class InvestigationsQueryService {
     request: KibanaRequest,
     query: ListInvestigationsQuery
   ): Promise<ListInvestigationsResponse> {
-    const { page, per_page: perPage, sort_field: sortField, sort_order: sortOrder } = query;
+    const { page, per_page: perPage, sort_field: field, sort_order: order } = query;
     const spaceId = this.deps.getSpaceId(request);
-    const client = await this.deps.getConversationClient(request);
+    const empty = { results: [], pagination: { total: 0, page, per_page: perPage } };
 
-    const { candidates, inProgressIds } = await this.findCandidates({
+    const candidateIds = await this.findCandidateIds(spaceId, query);
+    if (candidateIds?.length === 0) {
+      return empty;
+    }
+    const search = await this.deps.getInvestigationsSearch().forRequest(request);
+    const scope = await this.applyInProgressFilter({
       request,
-      client,
       spaceId,
+      search,
       filters: query,
-      // Recording a worker's execution id updates the investigation, so the ones in progress are
-      // among the most recently updated.
-      searchSort:
-        sortField === 'severity' || query.in_progress === true
-          ? { field: 'updated_at', order: 'desc' }
-          : { field: sortField, order: sortOrder },
-      compare: compareConversations(sortField, sortOrder),
+      scope: { filters: query, ids: candidateIds },
     });
-    candidates.sort(compareConversations(sortField, sortOrder));
+    if (!scope) {
+      return empty;
+    }
 
-    const start = (page - 1) * perPage;
+    const { ids, total } = await search.findPage({
+      ...scope,
+      sort: { field, order },
+      limit: page * perPage,
+    });
+    const pageIds = ids.slice((page - 1) * perPage);
+    const client = await this.deps.getConversationClient(request);
+    const readable =
+      pageIds.length > 0 ? await bulkGetReadableConversations(client, pageIds) : new Map();
     const results = await this.hydrate({
       request,
       client,
       spaceId,
-      conversations: candidates.slice(start, start + perPage),
-      inProgressIds,
+      conversations: pageIds.flatMap((id) => readable.get(id) ?? []),
+      inProgressIds: scope.inProgressIds,
     });
-    return { results, pagination: { total: candidates.length, page, per_page: perPage } };
+    return { results, pagination: { total, page, per_page: perPage } };
   }
 
   /**
@@ -194,7 +191,7 @@ export class InvestigationsQueryService {
           conversation.template_id === INVESTIGATION_TEMPLATE_ID &&
           toMetadata(conversation.metadata).status === 'open'
       )
-      .sort(compareConversations('updated_at', 'desc'))
+      .sort(byMostRecentlyUpdated)
       .slice(0, MAX_INVESTIGATIONS_PAGE_SIZE);
     if (open.length === 0) {
       return [];
@@ -213,108 +210,40 @@ export class InvestigationsQueryService {
   }
 
   /**
-   * The candidates, narrowed by `in_progress` when it is set. In progress needs workflow execution
-   * reads, so it is resolved once, over the capped candidates only: an investigation in progress
-   * beyond the first {@link MAX_INVESTIGATION_CANDIDATES} is not found, and the candidates the
-   * filter removes are not replaced. The ids in progress are returned so the page reports the
-   * state the filter used.
+   * The search scope narrowed by `in_progress` when it is set, or undefined when nothing can
+   * match. Running state is not stored, so it is resolved over the investigations that can be in
+   * progress (see `findInProgressCandidates`): one in progress beyond the
+   * `MAX_INVESTIGATION_CANDIDATES` most recently updated of them is not found. The ids in progress
+   * are returned so the page reports the state the filter used.
    */
-  private async findCandidates({
+  private async applyInProgressFilter({
     request,
     spaceId,
+    search,
     filters,
-    ...rest
+    scope,
   }: {
     request: KibanaRequest;
-    client: ConversationPublicClient;
     spaceId: string;
+    search: InvestigationSearch;
     filters: InvestigationFilters;
-    searchSort: ConversationSearchSort;
-    compare: (a: ConversationSummary, b: ConversationSummary) => number;
-  }): Promise<{ candidates: ConversationSummary[]; inProgressIds?: Set<string> }> {
-    const candidates = await this.readCandidates({ spaceId, filters, ...rest });
+    scope: InvestigationSearchScope;
+  }): Promise<(InvestigationSearchScope & { inProgressIds?: Set<string> }) | undefined> {
     if (filters.in_progress === undefined) {
-      return { candidates };
+      return scope;
     }
+    const candidates = await search.findInProgressCandidates(scope);
     const inProgressIds = await this.deps.inProgress.findInProgressIds(
       request,
       spaceId,
       candidates
     );
-    return {
-      candidates: candidates.filter(({ id }) => inProgressIds.has(id) === filters.in_progress),
-      inProgressIds,
-    };
-  }
-
-  /**
-   * Every investigation the caller can read that matches the filters other than `in_progress`,
-   * capped at {@link MAX_INVESTIGATION_CANDIDATES}, the first ones in `compare` order. The cap
-   * applies only after the access check and those filters, so investigations the caller cannot
-   * read, or that a filter Agent Builder cannot apply drops, never take a candidate slot.
-   */
-  private async readCandidates({
-    client,
-    spaceId,
-    filters,
-    searchSort,
-    compare,
-  }: {
-    client: ConversationPublicClient;
-    spaceId: string;
-    filters: InvestigationFilters;
-    searchSort: ConversationSearchSort;
-    compare: (a: ConversationSummary, b: ConversationSummary) => number;
-  }): Promise<ConversationSummary[]> {
-    const matches = (conversation: ConversationSummary) => matchesFilters(conversation, filters);
-
-    const ids = await this.findCandidateIds(spaceId, filters);
-    if (ids === undefined) {
-      return this.searchCandidates({ client, filters, searchSort, matches });
+    if (filters.in_progress) {
+      return inProgressIds.size > 0
+        ? { ...scope, ids: [...inProgressIds], inProgressIds }
+        : undefined;
     }
-    if (ids.length === 0) {
-      return [];
-    }
-
-    const readable = await bulkGetReadableConversations(client, ids);
-    return [...readable.values()]
-      .filter(matches)
-      .sort(compare)
-      .slice(0, MAX_INVESTIGATION_CANDIDATES);
-  }
-
-  /**
-   * Candidates from an access-checked conversation search, read page by page in `searchSort`
-   * order until {@link MAX_INVESTIGATION_CANDIDATES} of them pass the in-memory filters (the ones
-   * the search filter cannot express, such as the free-text query) or the search runs out, within
-   * Elasticsearch's result window.
-   */
-  private async searchCandidates({
-    client,
-    filters,
-    searchSort,
-    matches,
-  }: {
-    client: ConversationPublicClient;
-    filters: InvestigationFilters;
-    searchSort: ConversationSearchSort;
-    matches: (conversation: ConversationSummary) => boolean;
-  }): Promise<ConversationSummary[]> {
-    const filter = buildSearchFilter(filters);
-    const candidates: ConversationSummary[] = [];
-    for (let page = 1; page <= MAX_CANDIDATE_SEARCH_PAGES; page++) {
-      const { results } = await retryWhileShardUnavailable(() =>
-        client.search({ filter, sort: searchSort, page, perPage: MAX_INVESTIGATION_CANDIDATES })
-      );
-      candidates.push(...results.filter(matches));
-      if (
-        candidates.length >= MAX_INVESTIGATION_CANDIDATES ||
-        results.length < MAX_INVESTIGATION_CANDIDATES
-      ) {
-        break;
-      }
-    }
-    return candidates.slice(0, MAX_INVESTIGATION_CANDIDATES);
+    return { ...scope, excludeIds: [...inProgressIds], inProgressIds };
   }
 
   /**
@@ -551,103 +480,8 @@ export class InvestigationsQueryService {
   }
 }
 
-const buildSearchFilter = (filters: InvestigationFilters): KueryNode => {
-  const clauses: KueryNode[] = [nodeBuilder.is('template_id', INVESTIGATION_TEMPLATE_ID)];
-
-  const statuses = filters.status ? [...new Set(filters.status)] : [];
-  if (statuses.length === 1) {
-    // A missing status reads as open, so "open" is "not closed".
-    const closed = nodeBuilder.is('metadata.status', 'closed');
-    clauses.push(statuses[0] === 'closed' ? closed : nodeTypes.function.buildNode('not', closed));
-  }
-  if (filters.in_progress === true) {
-    // Only an open investigation with a recorded workflow execution can be in progress. The lone
-    // wildcard node is an `exists` query; the string '*' would match that literal value.
-    clauses.push(
-      nodeTypes.function.buildNode('not', nodeBuilder.is('metadata.status', 'closed')),
-      nodeBuilder.is('metadata.workflow_execution_ids', nodeTypes.wildcard.buildNode('*'))
-    );
-  }
-  // `none` (no severity yet) is matched in memory, so the search must not narrow by severity.
-  if (filters.severity && !filters.severity.includes(INVESTIGATION_SEVERITY_NONE)) {
-    clauses.push(
-      nodeBuilder.or(
-        [...new Set(filters.severity)].map((severity) =>
-          nodeBuilder.is('metadata.severity', severity)
-        )
-      )
-    );
-  }
-  if (filters.created_after) {
-    clauses.push(nodeTypes.function.buildNode('range', 'created_at', 'gte', filters.created_after));
-  }
-  if (filters.created_before) {
-    clauses.push(
-      nodeTypes.function.buildNode('range', 'created_at', 'lte', filters.created_before)
-    );
-  }
-  return nodeBuilder.and(clauses);
-};
-
-const matchesFilters = (
-  conversation: ConversationSummary,
-  filters: InvestigationFilters
-): boolean => {
-  if (conversation.template_id !== INVESTIGATION_TEMPLATE_ID) {
-    return false;
-  }
-  const metadata = toMetadata(conversation.metadata);
-  if (filters.status && !filters.status.includes(metadata.status)) {
-    return false;
-  }
-  if (
-    filters.severity &&
-    !filters.severity.includes(metadata.severity ?? INVESTIGATION_SEVERITY_NONE)
-  ) {
-    return false;
-  }
-  const createdAt = Date.parse(conversation.created_at);
-  if (filters.created_after && !(createdAt >= Date.parse(filters.created_after))) {
-    return false;
-  }
-  if (filters.created_before && !(createdAt <= Date.parse(filters.created_before))) {
-    return false;
-  }
-  if (filters.query !== undefined) {
-    // A title Agent Builder has not generated yet is its placeholder, which says nothing about
-    // the investigation.
-    const title = isInvestigationTitlePending(conversation.title) ? undefined : conversation.title;
-    const text = [title, metadata.summary, metadata.verdict]
-      .filter((part): part is string => part !== undefined)
-      .join('\n')
-      .toLowerCase();
-    const terms = filters.query.toLowerCase().split(/\s+/).filter(Boolean);
-    if (!terms.every((term) => text.includes(term))) {
-      return false;
-    }
-  }
-  return true;
-};
-
-const compareConversations =
-  (field: ListInvestigationsQuery['sort_field'], order: ListInvestigationsQuery['sort_order']) =>
-  (a: ConversationSummary, b: ConversationSummary): number => {
-    const primary =
-      field === 'severity'
-        ? severityRank(a) - severityRank(b)
-        : Date.parse(a[field]) - Date.parse(b[field]);
-    const ordered = order === 'asc' ? primary : -primary;
-    if (ordered !== 0) {
-      return ordered;
-    }
-    // Stable across pages: most recently updated first, then by id.
-    return Date.parse(b.updated_at) - Date.parse(a.updated_at) || a.id.localeCompare(b.id);
-  };
-
-const severityRank = (conversation: ConversationSummary): number => {
-  const { severity } = toMetadata(conversation.metadata);
-  return severity ? SEVERITY_RANK[severity] : 0;
-};
+const byMostRecentlyUpdated = (a: ConversationSummary, b: ConversationSummary): number =>
+  Date.parse(b.updated_at) - Date.parse(a.updated_at) || a.id.localeCompare(b.id);
 
 const optionalText = (value: MetadataFieldValue | undefined): string | undefined =>
   typeof value === 'string' && value.length > 0 ? value : undefined;

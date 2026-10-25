@@ -53,6 +53,8 @@ import { countPendingProposals } from './investigations/services/count_pending_p
 import { InProgressResolver } from './investigations/services/in_progress';
 import { InvestigationsQueryService } from './investigations/services/investigations_query_service';
 import { InvestigationSectionCountsService } from './investigations/services/section_counts_service';
+import { InvestigationsEsql } from './investigations/services/investigations_esql';
+import { InvestigationsSearchService } from './investigations/services/investigations_search';
 import { createInvestigationsClient } from './investigations/services/investigations_client';
 import { createConversationReadCheck } from './investigation_attachments';
 import { createUserResolver } from './services/resolve_user';
@@ -265,8 +267,26 @@ export class AgenticInvestigationsPlugin
       logger: this.logger,
     });
 
+    const investigationsEsqlDeps = {
+      getInternalEsClient: () => esClient,
+      getScopedEsClient: (request: KibanaRequest) =>
+        coreStart.elasticsearch.client.asScoped(request).asCurrentUser,
+      getSecurity: () => coreStart.security,
+      getAccessibleAgentIds: async (request: KibanaRequest) => {
+        const registry = await plugins.agentBuilder.agents.getRegistry({ request });
+        const agents = await registry.list({ includeHidden: true });
+        return agents.map(({ id }) => id);
+      },
+      getSpaceId: (request: KibanaRequest) => this.getSpaceId(request),
+      logger: this.logger,
+    };
+    const investigationsSearch = new InvestigationsSearchService(
+      new InvestigationsEsql(investigationsEsqlDeps)
+    );
+
     this.investigationsQueryService = new InvestigationsQueryService({
       getConversationClient: (request) => this.getConversationClient(request),
+      getInvestigationsSearch: () => investigationsSearch,
       getSpaceId: (request) => this.getSpaceId(request),
       getImpactService: () => this.requireImpactService(),
       getSubjectsService: () => this.requireSubjectsService(),
@@ -280,19 +300,7 @@ export class AgenticInvestigationsPlugin
       logger: this.logger,
     });
 
-    this.sectionCountsService = new InvestigationSectionCountsService({
-      getInternalEsClient: () => esClient,
-      getScopedEsClient: (request) =>
-        coreStart.elasticsearch.client.asScoped(request).asCurrentUser,
-      getSecurity: () => coreStart.security,
-      getAccessibleAgentIds: async (request) => {
-        const registry = await plugins.agentBuilder.agents.getRegistry({ request });
-        const agents = await registry.list({ includeHidden: true });
-        return agents.map(({ id }) => id);
-      },
-      getSpaceId: (request) => this.getSpaceId(request),
-      logger: this.logger,
-    });
+    this.sectionCountsService = new InvestigationSectionCountsService(investigationsEsqlDeps);
 
     const startPrivileges = createInvestigationsPrivilegesChecker({
       getSecurity: async () => plugins.security,

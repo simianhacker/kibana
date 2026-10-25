@@ -32,6 +32,7 @@ import { subjectDocumentId, SubjectsService } from '../../subjects/services/subj
 import type { SubjectClaimDocument, SubjectDocument } from '../../subjects/storage/subject_storage';
 import type { InProgressResolver } from './in_progress';
 import { InvestigationsQueryService } from './investigations_query_service';
+import type { InvestigationSearchScope } from './investigations_search';
 
 const request = httpServerMock.createKibanaRequest();
 const SPACE_ID = 'default';
@@ -80,9 +81,33 @@ const impact = (conversationId: string, overrides: Partial<Impact> = {}): Impact
 const parseQuery = (query: ListInvestigationsQueryInput = {}) =>
   listInvestigationsQuerySchema.parse(query);
 
+/**
+ * Stands in for the Elasticsearch search: `matches` are the investigations its filters match, in
+ * its sort order. It applies only the id scope, like the ES|QL `ids` filter.
+ */
+const fakeSearch = (matches: ConversationWithoutRoundsWithPermissions[]) => {
+  const inScope = ({ ids, excludeIds }: InvestigationSearchScope) =>
+    matches.filter(({ id }) => (!ids || ids.includes(id)) && !excludeIds?.includes(id));
+  const search = {
+    findPage: jest.fn(async ({ limit, ...scope }: InvestigationSearchScope & { limit: number }) => {
+      const ids = inScope(scope).map(({ id }) => id);
+      return { ids: ids.slice(0, limit), total: ids.length };
+    }),
+    findInProgressCandidates: jest.fn(async (scope: InvestigationSearchScope) =>
+      inScope(scope)
+        .filter(({ metadata }) => metadata?.status !== 'closed')
+        .map(({ id, metadata }) => ({ id, metadata }))
+    ),
+  };
+  return {
+    search,
+    searchService: { forRequest: jest.fn().mockResolvedValue(search) },
+  };
+};
+
 const setup = ({
   searchResults = [],
-  bulkGetResults = [],
+  bulkGetResults = searchResults,
   subjects = [],
   impacts = [],
   hypotheses,
@@ -90,7 +115,9 @@ const setup = ({
   proposals,
   attachmentHolders = [],
 }: {
+  /** What the Elasticsearch search matches, in sort order. */
   searchResults?: ConversationWithoutRoundsWithPermissions[];
+  /** What the caller's `bulkGet` can read; by default every search result. */
   bulkGetResults?: ConversationWithoutRoundsWithPermissions[];
   subjects?: InvestigationSubject[];
   impacts?: Impact[];
@@ -103,7 +130,7 @@ const setup = ({
   const client = {
     get: jest.fn(),
     search: jest.fn(async ({ filter }: { filter: KueryNode; page?: number; perPage?: number }) => {
-      const results = isAttachmentLookup(filter) ? attachmentHolders : searchResults;
+      const results = isAttachmentLookup(filter) ? attachmentHolders : [];
       return { results, total: results.length };
     }),
     bulkGet: jest
@@ -143,8 +170,10 @@ const setup = ({
       inProgressIds.includes(id)
     ),
   };
+  const { search, searchService } = fakeSearch(searchResults);
   const service = new InvestigationsQueryService({
     getConversationClient: async () => client as unknown as ConversationPublicClient,
+    getInvestigationsSearch: () => searchService,
     getSpaceId: () => SPACE_ID,
     getImpactService: () => impactService as unknown as ImpactService,
     getSubjectsService: () => subjectsService as unknown as SubjectsService,
@@ -153,14 +182,20 @@ const setup = ({
     inProgress: inProgress as unknown as InProgressResolver,
     logger: loggerMock.create(),
   });
-  return { service, client, subjectsService, subjectSearch, impactSearch, inProgress };
+  return {
+    service,
+    client,
+    search,
+    searchService,
+    subjectsService,
+    subjectSearch,
+    impactSearch,
+    inProgress,
+  };
 };
 
 const isAttachmentLookup = (filter: KueryNode): boolean =>
   toKqlExpression(filter).includes('attachment_id');
-
-const searchFilter = (client: { search: jest.Mock }): string =>
-  toKqlExpression(client.search.mock.calls[0][0].filter as KueryNode);
 
 describe('InvestigationsQueryService', () => {
   describe('get', () => {
@@ -354,74 +389,80 @@ describe('InvestigationsQueryService', () => {
   });
 
   describe('list', () => {
-    it('searches investigation conversations and pushes status, severity, and dates into the filter', async () => {
-      const { service, client } = setup({ searchResults: [] });
+    it('passes the filters, the sort, and the depth of the page to the search', async () => {
+      const { service, search, client } = setup();
 
-      await service.list(
-        request,
-        parseQuery({
-          status: 'open',
-          severity: ['high', 'critical'],
-          created_after: '2026-01-01T00:00:00.000Z',
-          sort_field: 'updated_at',
-          sort_order: 'asc',
-        })
-      );
+      const query = parseQuery({
+        status: 'open',
+        severity: ['high', 'none'],
+        query: 'checkout',
+        created_after: '2026-01-01T00:00:00.000Z',
+        sort_field: 'severity',
+        sort_order: 'asc',
+        page: 3,
+        per_page: 20,
+      });
+      await service.list(request, query);
 
+      expect(search.findPage).toHaveBeenCalledWith({
+        filters: query,
+        ids: undefined,
+        sort: { field: 'severity', order: 'asc' },
+        limit: 60,
+      });
+      expect(search.findInProgressCandidates).not.toHaveBeenCalled();
       expect(client.bulkGet).not.toHaveBeenCalled();
-      expect(client.search).toHaveBeenCalledWith(
-        expect.objectContaining({
-          sort: { field: 'updated_at', order: 'asc' },
-          page: 1,
-          perPage: 1000,
-        })
-      );
-      const filter = searchFilter(client);
-      expect(filter).toContain('template_id: investigation');
-      expect(filter).toContain('NOT metadata.status: closed');
-      expect(filter).toContain('metadata.severity: high');
-      expect(filter).toContain('metadata.severity: critical');
-      expect(filter).toContain('created_at >= 2026-01-01T00\\:00\\:00.000Z');
     });
 
-    it('pages, sorts, and hydrates only the requested page', async () => {
-      const { service, subjectsService } = setup({
-        searchResults: [
-          conversation('a', { created_at: '2026-01-01T00:00:00.000Z' }),
-          conversation('b', { created_at: '2026-01-03T00:00:00.000Z' }),
-          conversation('c', { created_at: '2026-01-02T00:00:00.000Z' }),
-        ],
+    it('reads and hydrates only the requested page, in the order of the search', async () => {
+      const { service, client, subjectsService } = setup({
+        searchResults: [conversation('b'), conversation('c'), conversation('a')],
       });
 
       const response = await service.list(request, parseQuery({ page: 2, per_page: 1 }));
 
       expect(response.pagination).toEqual({ total: 3, page: 2, per_page: 1 });
       expect(response.results.map(({ id }) => id)).toEqual(['c']);
+      expect(client.bulkGet).toHaveBeenCalledWith(['c']);
       expect(subjectsService.listByConversationIds).toHaveBeenCalledWith(['c'], SPACE_ID);
     });
 
-    it('sorts by severity rank, unknown severity last when descending', async () => {
-      const { service, client } = setup({
-        searchResults: [
-          conversation('low', { metadata: { severity: 'low' } }),
-          conversation('none'),
-          conversation('critical', { metadata: { severity: 'critical' } }),
-          conversation('medium', { metadata: { severity: 'medium' } }),
-        ],
-      });
+    it('reports the exact total, beyond the pages it can reach', async () => {
+      const matches = Array.from({ length: 1500 }, (_, i) => conversation(`conv-${i}`));
+      const { service } = setup({ searchResults: matches });
 
-      const { results } = await service.list(request, parseQuery({ sort_field: 'severity' }));
+      const response = await service.list(request, parseQuery({ per_page: 100, page: 10 }));
 
-      expect(results.map(({ id }) => id)).toEqual(['critical', 'medium', 'low', 'none']);
-      expect(client.search).toHaveBeenCalledWith(
-        expect.objectContaining({ sort: { field: 'updated_at', order: 'desc' } })
-      );
+      expect(response.pagination.total).toBe(1500);
+      expect(response.results[0].id).toBe('conv-900');
     });
 
-    it('starts from the subject index for subject filters and reads the candidates as the caller', async () => {
-      const { service, client, subjectSearch } = setup({
-        bulkGetResults: [conversation('conv-1'), conversation('other', { template_id: 'x' })],
+    it('leaves out a conversation the caller cannot read', async () => {
+      const { service } = setup({
+        searchResults: [conversation('readable'), conversation('gone')],
+        bulkGetResults: [conversation('readable')],
       });
+
+      const { results } = await service.list(request, parseQuery());
+
+      expect(results.map(({ id }) => id)).toEqual(['readable']);
+    });
+
+    it('returns nothing when the user can read no investigation', async () => {
+      const { service, searchService, client } = setup();
+      searchService.forRequest.mockResolvedValue({
+        findPage: async () => ({ ids: [], total: 0 }),
+        findInProgressCandidates: async () => [],
+      });
+
+      const response = await service.list(request, parseQuery());
+
+      expect(response).toEqual({ results: [], pagination: { total: 0, page: 1, per_page: 20 } });
+      expect(client.bulkGet).not.toHaveBeenCalled();
+    });
+
+    it('starts from the subject index for subject filters and searches within its ids', async () => {
+      const { service, search, subjectSearch } = setup({ searchResults: [conversation('conv-1')] });
       subjectSearch.mockResolvedValue(['conv-1', 'other', 'inaccessible']);
 
       const { results } = await service.list(
@@ -437,15 +478,14 @@ describe('InvestigationsQueryService', () => {
           { terms: { subjectId: ['alert-1', 'alert-2'] } },
         ],
       });
-      expect(client.search).not.toHaveBeenCalled();
-      expect(client.bulkGet).toHaveBeenCalledWith(['conv-1', 'other', 'inaccessible']);
+      expect(search.findPage).toHaveBeenCalledWith(
+        expect.objectContaining({ ids: ['conv-1', 'other', 'inaccessible'] })
+      );
       expect(results.map(({ id }) => id)).toEqual(['conv-1']);
     });
 
     it('intersects the entity filter with the subject filter', async () => {
-      const { service, client, subjectSearch, impactSearch } = setup({
-        bulkGetResults: [conversation('conv-2')],
-      });
+      const { service, search, subjectSearch, impactSearch } = setup();
       subjectSearch.mockResolvedValue(['conv-1', 'conv-2']);
       impactSearch.mockResolvedValue(['conv-2', 'conv-3']);
 
@@ -471,72 +511,42 @@ describe('InvestigationsQueryService', () => {
           },
         ],
       });
-      expect(client.bulkGet).toHaveBeenCalledWith(['conv-2']);
+      expect(search.findPage).toHaveBeenCalledWith(expect.objectContaining({ ids: ['conv-2'] }));
     });
 
-    it('does not let candidates the caller cannot read take the slots of their own matches', async () => {
-      // 1,500 subject matches: the first 1,200 are other users' private investigations.
-      const ids = Array.from({ length: 1500 }, (_, i) => `conv-${i}`);
-      const readable = ids
-        .slice(1200)
-        .map((id, i) =>
-          conversation(id, { updated_at: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString() })
-        );
-      const { service, client, subjectSearch } = setup({ bulkGetResults: readable });
-      subjectSearch.mockResolvedValue(ids);
-
-      const response = await service.list(
-        request,
-        parseQuery({ subject_id: 'alert-1', sort_field: 'updated_at', per_page: 100 })
-      );
-
-      // Every candidate is read as the caller, in chunks, before anything is capped.
-      expect(client.bulkGet).toHaveBeenCalledTimes(2);
-      expect(client.bulkGet.mock.calls.flatMap(([chunk]) => chunk)).toEqual(ids);
-      expect(response.pagination.total).toBe(300);
-      expect(response.results[0].id).toBe('conv-1499');
-    });
-
-    it('caps the candidates after the access check, keeping the first ones in sort order', async () => {
-      const ids = Array.from({ length: 1200 }, (_, i) => `conv-${i}`);
-      const readable = ids.map((id, i) =>
-        conversation(id, { created_at: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString() })
-      );
-      const { service, subjectSearch } = setup({ bulkGetResults: readable });
-      subjectSearch.mockResolvedValue(ids);
-
-      const response = await service.list(
-        request,
-        parseQuery({ subject_id: 'alert-1', sort_field: 'created_at', sort_order: 'desc' })
-      );
-
-      expect(response.pagination.total).toBe(1000);
-      expect(response.results[0].id).toBe('conv-1199');
-    });
-
-    it('returns nothing without reading conversations when the side indexes match nothing', async () => {
-      const { service, client, impactSearch } = setup();
+    it('returns nothing without searching when the side indexes match nothing', async () => {
+      const { service, searchService, client, impactSearch } = setup();
       impactSearch.mockResolvedValue([]);
 
       const response = await service.list(request, parseQuery({ entity: 'checkout' }));
 
       expect(response.results).toEqual([]);
+      expect(searchService.forRequest).not.toHaveBeenCalled();
       expect(client.bulkGet).not.toHaveBeenCalled();
-      expect(client.search).not.toHaveBeenCalled();
+    });
+
+    it('searches within the requested ids', async () => {
+      const { service, search } = setup({
+        searchResults: [conversation('conv-1'), conversation('conv-2'), conversation('conv-3')],
+      });
+
+      const response = await service.list(request, parseQuery({ id: ['conv-1', 'conv-2'] }));
+
+      expect(search.findPage).toHaveBeenCalledWith(
+        expect.objectContaining({ ids: ['conv-1', 'conv-2'] })
+      );
+      expect(response.results.map(({ id }) => id)).toEqual(['conv-1', 'conv-2']);
     });
 
     it('resolves the in-progress state for the returned page only', async () => {
-      const { service, inProgress } = setup({
-        searchResults: [
-          conversation('newest', { created_at: '2026-01-03T00:00:00.000Z' }),
-          conversation('busy', { created_at: '2026-01-02T00:00:00.000Z' }),
-          conversation('oldest', { created_at: '2026-01-01T00:00:00.000Z' }),
-        ],
+      const { service, inProgress, search } = setup({
+        searchResults: [conversation('newest'), conversation('busy'), conversation('oldest')],
         inProgressIds: ['busy', 'oldest'],
       });
 
       const response = await service.list(request, parseQuery({ per_page: 2 }));
 
+      expect(search.findInProgressCandidates).not.toHaveBeenCalled();
       expect(inProgress.findInProgressIds).toHaveBeenCalledTimes(1);
       expect(inProgress.findInProgressIds).toHaveBeenCalledWith(request, SPACE_ID, [
         expect.objectContaining({ id: 'newest' }),
@@ -548,21 +558,26 @@ describe('InvestigationsQueryService', () => {
       ]);
     });
 
-    it('resolves in_progress=true once over every candidate and pages the ones in progress', async () => {
-      const { service, inProgress } = setup({
+    it('resolves in_progress=true once over the candidates and pages the ones in progress', async () => {
+      const { service, inProgress, search } = setup({
         searchResults: [
-          conversation('idle', { created_at: '2026-01-03T00:00:00.000Z' }),
-          conversation('busy-new', { created_at: '2026-01-02T00:00:00.000Z' }),
-          conversation('busy-old', { created_at: '2026-01-01T00:00:00.000Z' }),
+          conversation('idle'),
+          conversation('busy-new'),
+          conversation('busy-old'),
+          conversation('closed', { metadata: { status: 'closed' } }),
         ],
         inProgressIds: ['busy-new', 'busy-old'],
       });
 
       const response = await service.list(
         request,
-        parseQuery({ in_progress: 'true', per_page: 1 })
+        parseQuery({ in_progress: 'true', query: 'checkout', per_page: 1 })
       );
 
+      expect(search.findInProgressCandidates).toHaveBeenCalledWith({
+        filters: expect.objectContaining({ in_progress: true, query: 'checkout' }),
+        ids: undefined,
+      });
       // The page reuses the state the filter resolved instead of resolving it again.
       expect(inProgress.findInProgressIds).toHaveBeenCalledTimes(1);
       expect(inProgress.findInProgressIds).toHaveBeenCalledWith(request, SPACE_ID, [
@@ -570,66 +585,39 @@ describe('InvestigationsQueryService', () => {
         expect.objectContaining({ id: 'busy-new' }),
         expect.objectContaining({ id: 'busy-old' }),
       ]);
+      expect(search.findPage).toHaveBeenCalledWith(
+        expect.objectContaining({ ids: ['busy-new', 'busy-old'] })
+      );
       expect(response.pagination.total).toBe(2);
       expect(response.results.map(({ id, in_progress: busy }) => ({ id, busy }))).toEqual([
         { id: 'busy-new', busy: true },
       ]);
     });
 
-    it('searches open investigations with workflow executions, most recently updated first, for in_progress=true', async () => {
-      const { service, client } = setup();
+    it('returns nothing for in_progress=true without listing when none is in progress', async () => {
+      const { service, search } = setup({ searchResults: [conversation('idle')] });
 
-      await service.list(request, parseQuery({ in_progress: 'true', sort_field: 'created_at' }));
+      const response = await service.list(request, parseQuery({ in_progress: 'true' }));
 
-      expect(client.search).toHaveBeenCalledWith(
-        expect.objectContaining({ sort: { field: 'updated_at', order: 'desc' } })
-      );
-      const filter = searchFilter(client);
-      expect(filter).toContain('NOT metadata.status: closed');
-      expect(filter).toContain('metadata.workflow_execution_ids: *');
+      expect(response.pagination.total).toBe(0);
+      expect(search.findPage).not.toHaveBeenCalled();
     });
 
-    it('excludes the investigations in progress for in_progress=false, without narrowing the search', async () => {
-      const { service, client } = setup({
+    it('excludes the investigations in progress for in_progress=false', async () => {
+      const { service, search } = setup({
         searchResults: [conversation('busy'), conversation('idle')],
         inProgressIds: ['busy'],
       });
 
       const response = await service.list(request, parseQuery({ in_progress: 'false' }));
 
+      expect(search.findPage).toHaveBeenCalledWith(
+        expect.objectContaining({ excludeIds: ['busy'] })
+      );
+      expect(response.pagination.total).toBe(1);
       expect(response.results.map(({ id, in_progress: busy }) => ({ id, busy }))).toEqual([
         { id: 'idle', busy: false },
       ]);
-      expect(client.search).toHaveBeenCalledWith(
-        expect.objectContaining({ sort: { field: 'created_at', order: 'desc' } })
-      );
-      expect(searchFilter(client)).not.toContain('workflow_execution_ids');
-    });
-
-    it('reads the requested ids as the caller', async () => {
-      const { service, client } = setup({
-        bulkGetResults: [conversation('conv-1'), conversation('conv-2')],
-      });
-
-      const response = await service.list(request, parseQuery({ id: ['conv-1', 'conv-2'] }));
-
-      expect(client.bulkGet).toHaveBeenCalledWith(['conv-1', 'conv-2']);
-      expect(client.search).not.toHaveBeenCalled();
-      expect(response.results.map(({ id }) => id).sort()).toEqual(['conv-1', 'conv-2']);
-    });
-
-    it('matches investigations without a severity for severity=none, in memory', async () => {
-      const { service, client } = setup({
-        searchResults: [
-          conversation('rated', { metadata: { status: 'open', severity: 'high' } }),
-          conversation('unrated'),
-        ],
-      });
-
-      const response = await service.list(request, parseQuery({ severity: 'none' }));
-
-      expect(response.results.map(({ id }) => id)).toEqual(['unrated']);
-      expect(searchFilter(client)).not.toContain('metadata.severity');
     });
 
     it('counts pending proposals per investigation when the caller may read them', async () => {
@@ -668,22 +656,7 @@ describe('InvestigationsQueryService', () => {
       expect(results[0]).not.toHaveProperty('pending_proposal_count');
     });
 
-    it('matches free text against the title, summary, and verdict', async () => {
-      const { service } = setup({
-        searchResults: [
-          conversation('title', { title: 'Checkout latency spike' }),
-          conversation('summary', { metadata: { summary: 'The CHECKOUT service failed' } }),
-          conversation('verdict', { metadata: { verdict: 'checkout deploy' } }),
-          conversation('none', { title: 'Unrelated' }),
-        ],
-      });
-
-      const { results } = await service.list(request, parseQuery({ query: 'checkout' }));
-
-      expect(results.map(({ id }) => id).sort()).toEqual(['summary', 'title', 'verdict']);
-    });
-
-    it('reports a title Agent Builder has not generated yet and never matches text against it', async () => {
+    it('reports a title Agent Builder has not generated yet', async () => {
       const { service } = setup({
         searchResults: [
           conversation('pending', { title: DEFAULT_CONVERSATION_TITLE }),
@@ -692,17 +665,10 @@ describe('InvestigationsQueryService', () => {
       });
 
       const { results } = await service.list(request, parseQuery());
-      expect(
-        results
-          .map(({ id, title_pending: titlePending }) => ({ id, titlePending }))
-          .sort((a, b) => a.id.localeCompare(b.id))
-      ).toEqual([
+      expect(results.map(({ id, title_pending: titlePending }) => ({ id, titlePending }))).toEqual([
         { id: 'pending', titlePending: true },
         { id: 'titled', titlePending: false },
       ]);
-
-      const matched = await service.list(request, parseQuery({ query: 'conversation' }));
-      expect(matched.results.map(({ id }) => id)).toEqual(['titled']);
     });
 
     it('hides a removed document with one attachment lookup instead of reading the conversation', async () => {
@@ -784,7 +750,7 @@ describe('InvestigationsQueryService', () => {
 
       await service.list(request, parseQuery());
 
-      expect(client.search).toHaveBeenCalledTimes(1);
+      expect(client.search).not.toHaveBeenCalled();
       expect(client.get).not.toHaveBeenCalled();
     });
   });
@@ -854,9 +820,10 @@ describe('InvestigationsQueryService', () => {
         });
         return docId;
       };
-      const base = setup({ bulkGetResults: conversations, attachmentHolders });
+      const base = setup({ searchResults: conversations, attachmentHolders });
       const service = new InvestigationsQueryService({
         getConversationClient: async () => base.client as unknown as ConversationPublicClient,
+        getInvestigationsSearch: () => base.searchService,
         getSpaceId: () => SPACE_ID,
         getImpactService: () =>
           ({

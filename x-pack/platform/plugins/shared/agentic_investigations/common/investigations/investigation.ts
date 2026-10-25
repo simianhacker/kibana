@@ -102,7 +102,7 @@ export const listInvestigationsQuerySchema = investigationFiltersSchema
       .default(DEFAULT_INVESTIGATIONS_PAGE_SIZE),
   })
   .refine(({ page, per_page: perPage }) => page * perPage <= MAX_INVESTIGATION_CANDIDATES, {
-    message: `page * per_page must not exceed ${MAX_INVESTIGATION_CANDIDATES}; investigations beyond that are not reachable through this API`,
+    message: `page * per_page must not exceed ${MAX_INVESTIGATION_CANDIDATES}; pages beyond that are not reachable through this API`,
   });
 export type ListInvestigationsQueryInput = z.input<typeof listInvestigationsQuerySchema>;
 export type ListInvestigationsQuery = z.output<typeof listInvestigationsQuerySchema>;
@@ -202,7 +202,7 @@ export interface Investigation extends InvestigationSummary {
 
 export interface ListInvestigationsResponse {
   results: InvestigationSummary[];
-  /** `total` counts at most {@link MAX_INVESTIGATION_CANDIDATES} investigations. */
+  /** `total` counts every matching investigation, even beyond the pages that can be reached. */
   pagination: { total: number; page: number; per_page: number };
 }
 

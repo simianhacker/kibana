@@ -66,7 +66,11 @@ describe('useFetchInvestigations', () => {
     });
   });
 
-  it('keeps only the running investigations among the newest open ones', async () => {
+  it('asks the list API for the running investigations and pages them by its total', async () => {
+    httpGet.mockResolvedValue({
+      results: [investigation('running', true)],
+      pagination: { page: 1, per_page: 20, total: 25 },
+    });
     const { result } = renderHook(() => useFetchInvestigations({ inProgress: true }), {
       wrapper: createWrapper(),
     });
@@ -74,8 +78,8 @@ describe('useFetchInvestigations', () => {
     await waitFor(() =>
       expect(result.current.investigations.map(({ id }) => id)).toEqual(['running'])
     );
-    expect(result.current.total).toBe(1);
-    expect(result.current.hasMore).toBe(false);
+    expect(result.current.total).toBe(25);
+    expect(result.current.hasMore).toBe(true);
     expect(httpGet).toHaveBeenCalledWith(
       '/internal/investigations/investigations',
       expect.objectContaining({
@@ -84,7 +88,7 @@ describe('useFetchInvestigations', () => {
           sort_order: 'desc',
           page: 1,
           per_page: 20,
-          status: 'open',
+          in_progress: true,
         },
       })
     );
